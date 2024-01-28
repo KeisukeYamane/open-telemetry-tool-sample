@@ -1,0 +1,60 @@
+# どこから、どのプロトコルで入手するのか指定する
+# 今回はOpenTelemetryを使用し、プロトコルはgrpc
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: otel-collector:4317
+
+# 取得したデータの加工及びサンプリングを行う
+processors:
+  batch:
+  attributes:
+    actions:
+      - key: collector
+        value: otel-collector
+        action: insert
+
+  # tail-based-sampling
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 10
+    # サンプリング条件
+    policies:
+      [
+        {
+          # レイテンシが1ms以上
+          name: longer-than-500ms,
+          type: latency,
+          latency: { threshold_ms: 1 },
+        },
+        {
+          # http.urlがhttps://www.google.co.jp
+          type: string_attribute,
+          string_attribute: {
+            key: "http.url",
+            values: ["https://www.google.co.jp"]
+          }
+        }
+      ]
+exporters:
+  otlp/jaeger: # Jaeger supports OTLP directly. The default port for OTLP/gRPC is 4317
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+# コレクターでどのコンポーネントを有効にするか
+# このセクション内で定義されていないと、そのコンポーネントが有効になっていないので注意
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [attributes, tail_sampling]
+      exporters: [otlp/jaeger]
+    # metrics:
+    #   receivers: [otlp]
+    #   processors: [batch]
+    #   exporters: [otlp]
+  telemetry:
+    logs:
+      level: "debug"
